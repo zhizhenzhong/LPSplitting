@@ -4,7 +4,7 @@ Simulation code for the LPSplitting paper in IEEE/ACM Trans. Netw. 27 (4), 1460-
 ## Publication
 Zhizhen Zhong, Nan Hua, Massimo Tornatore, Jialong Li, Yanhe Li, Xiaoping Zheng, and Biswanath Mukherjee. "Provisioning short-term traffic fluctuations in elastic optical networks." IEEE/ACM Transactions on Networking 27, no. 4 (2019): 1460-1473. https://dl.acm.org/doi/abs/10.1109/TNET.2019.2925631
 
-<a href="https://cloud.tsinghua.edu.cn/f/cfc0362c3f3d4cc49154/" target="_blank">Read the Paper</a>
+<a href="http://people.csail.mit.edu/zhizhenzhong/papers/2019_ToN_LPSplitting.pdf" target="_blank">Read the Paper</a>
 
 
 ## Abstract
