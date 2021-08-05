@@ -1787,11 +1787,13 @@ void Network::Lightpath_Splitting_Routing()
 {
 	clock_t startTime, endTime;
 
-	cout<<"***[all splitting algorithm]***"<<endl;
+	cout<<"***[all splitting algorithm 1]***"<<endl;
 	All_Lightpath_Splitting(0, optical_database, lightpath_database, incremental_residual_traffic);
+	cout<<"NEW: "<<new_memory_count<<endl; 
 
-	//All_Lightpath_Splitting(1, optical_database, lightpath_database, incremental_residual_traffic);
-	//cout<<"NEW: "<<new_memory_count<<endl; 
+	cout<<"***[all splitting algorithm 2]***"<<endl;
+	All_Lightpath_Splitting(1, optical_database, lightpath_database, incremental_residual_traffic);
+	cout<<"NEW: "<<new_memory_count<<endl; 
 
 	//Lightpath Splitting
 	for (int k = 15; k > 14; k--)
@@ -1801,64 +1803,64 @@ void Network::Lightpath_Splitting_Routing()
 			//continue;
 		//}
 		cout<<endl<<"*******"<<endl<<"K="<<10*k<<endl<<"*******"<<endl;
-		//////////////////////////////////////////////////////////////////////////
-		//Select as many lightpaths as possible, split to max electric capacity, BF-MaxE
 		cout<<"***[Greedy algorithm 1,2,3,4,Simulated annealing algorithm 1,2]***"<<endl;
 		cout<<"*Throughput(*6.25Gbps), Affected bandwidth(*6.25Gbps), LPSplitting accommodated traffic average bps traffic hops(/6.25Gbps), LPSplitting resulted incremental traffic hops*existing traffic bandwidth"<<endl;
+		
+		//////////////////////////////////////////////////////////////////////////
+		//Select as many lightpaths as possible, split to max electric capacity, BF-MaxE
+		cout<<"***[Greedy algorithm 1]***"<<endl;
 		startTime = clock();
-		//Greedy_Lightpath_Splitting(10*k, 0, 0, optical_database, lightpath_database, incremental_residual_traffic);
+		Greedy_Lightpath_Splitting(10*k, 0, 0, optical_database, lightpath_database, incremental_residual_traffic);
 		endTime = clock();
 		cout<<"BF-MaxE: "<<(double)(endTime - startTime)/CLOCKS_PER_SEC<<"s"<<endl;
-		//cout<<"NEW: "<<new_memory_count<<endl; 
+		cout<<"NEW: "<<new_memory_count<<endl; 
 
 		//////////////////////////////////////////////////////////////////////////
 		//split one lightpath as much as possible, split to max electric capacity, DF-MaxE
-		//cout<<"***[Greedy algorithm 2]***"<<endl;
+		cout<<"***[Greedy algorithm 2]***"<<endl;
 		startTime = clock();
-		//Greedy_Lightpath_Splitting(10*k, 1, 0, optical_database, lightpath_database, incremental_residual_traffic);
+		Greedy_Lightpath_Splitting(10*k, 1, 0, optical_database, lightpath_database, incremental_residual_traffic);
 		endTime = clock();
 		cout<<"DF-MaxE: "<<(double)(endTime - startTime)/CLOCKS_PER_SEC<<"s"<<endl;
-		//cout<<"NEW: "<<new_memory_count<<endl; 
+		cout<<"NEW: "<<new_memory_count<<endl; 
 
 		//////////////////////////////////////////////////////////////////////////
 		//Select as many lightpaths as possible, split to max optical capacity, BF-MaxO
-		//cout<<"***[Greedy algorithm 3]***"<<endl;
+		cout<<"***[Greedy algorithm 3]***"<<endl;
 		startTime = clock();
-		//Greedy_Lightpath_Splitting(10*k, 0, 1, optical_database, lightpath_database, incremental_residual_traffic);
+		Greedy_Lightpath_Splitting(10*k, 0, 1, optical_database, lightpath_database, incremental_residual_traffic);
 		endTime = clock();
 		cout<<"BF-MaxO: "<<(double)(endTime - startTime)/CLOCKS_PER_SEC<<"s"<<endl;
-		//cout<<"NEW: "<<new_memory_count<<endl; 
+		cout<<"NEW: "<<new_memory_count<<endl; 
 
 		//////////////////////////////////////////////////////////////////////////
 		//split one lightpath as much as possible, split to max optical capacity, DF-MaxO
-		//cout<<"***[Greedy algorithm 4]***"<<endl;
+		cout<<"***[Greedy algorithm 4]***"<<endl;
 		startTime = clock();
-		//Greedy_Lightpath_Splitting(10*k, 1, 1, optical_database, lightpath_database, incremental_residual_traffic);
+		Greedy_Lightpath_Splitting(10*k, 1, 1, optical_database, lightpath_database, incremental_residual_traffic);
 		endTime = clock();
 		cout<<"DF-MaxO: "<<(double)(endTime - startTime)/CLOCKS_PER_SEC<<"s"<<endl;
-		//cout<<"NEW: "<<new_memory_count<<endl; 
+		cout<<"NEW: "<<new_memory_count<<endl; 
 
 		//////////////////////////////////////////////////////////////////////////
 		//Simulated annealing, split to max electric capacity, SA-MaxE
-		//cout<<"***[Simulated annealing algorithm 1]***"<<endl;
+		cout<<"***[Simulated annealing algorithm 1]***"<<endl;
 		startTime = clock();
 		SA_Lightpath_Splitting(10*k, 0, optical_database, lightpath_database, incremental_residual_traffic);
 		endTime = clock();
 		cout<<"SA-MaxE: "<<(double)(endTime - startTime)/CLOCKS_PER_SEC<<"s"<<endl;
-		//cout<<"NEW: "<<new_memory_count<<endl; 
+		cout<<"NEW: "<<new_memory_count<<endl; 
 
 		//////////////////////////////////////////////////////////////////////////
 		//Simulated annealing, split to max optical capacity, SA-MaxO
-		//cout<<"***[Simulated annealing algorithm 2]***"<<endl;
+		cout<<"***[Simulated annealing algorithm 2]***"<<endl;
 		startTime = clock();
-		//SA_Lightpath_Splitting(10*k, 1, optical_database, lightpath_database, incremental_residual_traffic);
+		SA_Lightpath_Splitting(10*k, 1, optical_database, lightpath_database, incremental_residual_traffic);
 		endTime = clock();
 		cout<<"SA-MaxO: "<<(double)(endTime - startTime)/CLOCKS_PER_SEC<<"s"<<endl;
-		//cout<<"NEW: "<<new_memory_count<<endl; 
+		cout<<"NEW: "<<new_memory_count<<endl; 
 
 	}
-	
-
 	return;
 }
 
@@ -1879,14 +1881,16 @@ void Network::Post_Processing()
 	//Generate_Baseline_Configurations()
 	delete [] lightpath_database; new_memory_count--;
 
-	//cout<<"Final NEW: "<<new_memory_count<<endl; 
+	cout<<"Final NEW: "<<new_memory_count<<endl; 
 		
 	exit(0);
 }
 
 int main()
 {
-	cout<<"Welcome to Lightpath Splitting Simulation Environment"<<endl<<"Copyright held with Zhizhen Zhong (z.zhong.tsinghua@gmail.com)"<<endl
+	cout<<"========================================================="<<endl
+		<<"Welcome to Lightpath Splitting Simulation Environment"<<endl
+		<<"Copyright held with Zhizhen Zhong (z.zhong.tsinghua@gmail.com)"<<endl
 		<<"  2017.11--version 1.0 @Tsinghua for ToN submission"<<endl
 		<<"  2018.12--version 2.0 @Tsinghua for ToN revision"<<endl
 		<<"  2019.06--version 3.0 @Tsinghua for camera-ready publication"<<endl
