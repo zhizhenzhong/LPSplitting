@@ -7,22 +7,24 @@
 Network network;
 int total_traffic_no;
 
-//all lightpatsh / number of successful traffic
+//All lightpath / successful traffic number
 int lightpath_control = 0;
 int overall_traffic_success = 0;
 
-//Baseline lightpatha / number of successful traffic
+//store post Baseline lightpath / successful traffic number
 int baseline_lightpath_control;
 int baseline_overall_traffic_success;
 
-//Incremental lightpaths before splitting / number of successful traffic
+//store post Incremental pre split lightpath / successful traffic number
 int pre_split_lightpath_control = 0;
 int pre_split_overall_traffic_success = 0;
 
-//lightpaths after splitting
+//store post split lightpath
 int split_lightpath_control = 0;
 
 int combine_control = 0;
+
+int new_memory_count = 0;
 
 Node::Node()
 {
@@ -64,26 +66,29 @@ Traffic::Traffic()
 
 Network::Network()
 {
+	optical_database = NULL;
+	lightpath_database = NULL;
 	baseline_traffic = NULL;
 	incremental_traffic = NULL;
-	optical_database = NULL;
+	incremental_residual_traffic = NULL;
 	lightpath_number = 0;
 }
 
 void Network::Read_Topo()
 {
+	//cout<<"Read_Topo: "<<new_memory_count<<endl;
 	bool findData=0;
 	FILE *read_topo_file;
 
-	if((read_topo_file = fopen("splitting_topo_NSFNET.dat", "r")) == 0)
+	if((read_topo_file = fopen("./data/splitting_topo_NSFNET.dat", "r")) == 0)
 	{
 		cout<<"splitting_topo_NSFNET.dat NOT OPEN!!"<<endl;
 		return;
 	}
 
-	optical_database = new Optical[TOPO_LINK_NUM];
+	optical_database = new Optical[TOPO_LINK_NUM]; new_memory_count++;
 	Optical *i = optical_database;
-	while (!feof(read_topo_file))  //feof detect whether file end is reached
+	while (!feof(read_topo_file))  //feof detects if file pointer is at the end of the file
 	{
 		fscanf(read_topo_file, "%d %d %d\n", &(i->optical_src), &(i->optical_dst), &(i->optical_length));		
 		i++;
@@ -92,22 +97,25 @@ void Network::Read_Topo()
 
 	for (int i=0; i<TOPO_LINK_NUM; i++)
 	{
-		optical_database[i].spectrum_occupy = new int[SPECTRUM_SLOT_NUM];
+		optical_database[i].spectrum_occupy = new int[SPECTRUM_SLOT_NUM]; new_memory_count++;
 		for (int j = 0; j < SPECTRUM_SLOT_NUM; j++)
 		{
 			optical_database[i].spectrum_occupy[j] = 0;
 		}
 	}
+	//cout<<"Read_Topo: "<<new_memory_count<<endl;
 }
 
 void Network::Generate_Traffic(float mu)
 {
+	//cout<<"Generate_Traffic: "<<new_memory_count<<endl;
 	//generate baseline traffic
 	srand( (unsigned)time(NULL) ); //seed for random
-	baseline_traffic = new Traffic[TOPO_NODE_NUM*(TOPO_NODE_NUM-1)];
+	baseline_traffic = new Traffic[TOPO_NODE_NUM*(TOPO_NODE_NUM-1)]; new_memory_count++;
 
-	//range: 1~80, where 1 represent 2.5Gbps, 2.5~200Gbps, 
-	//total amount is 80*(24*23)/2 = 22080, which is 55200 Gbps
+	//generate traffic
+	//range: 1~11, where 1 represent 6.25Gbps (6.25~68.75Gbps), 
+	//total amount is 12*(14*13)/2 = 1092, which is 6825 Gbps, consistent with the results
 	int temp_sum = 0;
 	int x = 0;
 
@@ -133,7 +141,7 @@ void Network::Generate_Traffic(float mu)
 	while (req.size() > 0)
 	{
 		int rand1 = rand() % req.size();
-		baseline_traffic[req[rand1]].traffic_bw = rand() % (BANDWIDTH_RANGE-1) + 2; //2 ~ 20
+		baseline_traffic[req[rand1]].traffic_bw = rand() % (BANDWIDTH_RANGE-1) + 1; //traffic bw 1 ~ 11, which is 6.25G ~ 68.75G
 		float temp_bw = baseline_traffic[req[rand1]].traffic_bw;
 		vector<int>::iterator it;
 		int del1 = req[rand1];
@@ -146,7 +154,7 @@ void Network::Generate_Traffic(float mu)
 		}
 
 		int rand2 = rand() % req.size();
-		baseline_traffic[req[rand2]].traffic_bw = BANDWIDTH_RANGE - temp_bw;
+		baseline_traffic[req[rand2]].traffic_bw = BANDWIDTH_RANGE - temp_bw; //traffic bw 1 ~ 11, which is 6.25G ~ 68.75G
 		vector<int>::iterator it2;
 		int del2 = req[rand2];
 		for(it2=req.begin();it2!=req.end();)
@@ -158,11 +166,17 @@ void Network::Generate_Traffic(float mu)
 		}
 	}
 
+	for (int u = 0; u < TOPO_NODE_NUM*(TOPO_NODE_NUM-1); u++)
+	{
+		cout<<baseline_traffic[u].traffic_bw<<" ";
+	}
+	cout<<endl;
+
 	bubble_sort(baseline_traffic, TOPO_NODE_NUM*(TOPO_NODE_NUM-1));
 
 	float accummulate = 0;
 	float accumulate_incremental = 0;
-	incremental_traffic = new Traffic[TOPO_NODE_NUM*(TOPO_NODE_NUM-1)];
+	incremental_traffic = new Traffic[TOPO_NODE_NUM*(TOPO_NODE_NUM-1)]; new_memory_count++;
 	
 	for (int y = 0; y < TOPO_NODE_NUM*(TOPO_NODE_NUM-1); y++)
 	{
@@ -178,27 +192,29 @@ void Network::Generate_Traffic(float mu)
 	}
 
 	cout<<"-------------------"<<endl;
-	cout<<"Total baseline bandwidth: "<<accummulate<<endl;
-	cout<<"Total incremental(mu="<<mu<<") bandwidth: "<<accumulate_incremental<<endl;
+	cout<<"baseline sum bandwidth: "<<accummulate<<endl;
+	cout<<"incremental(mu="<<mu<<")sum bandwidth: "<<accumulate_incremental<<endl;
 	cout<<"-------------------"<<endl<<endl;
+	//cout<<"Generate_Traffic: "<<new_memory_count<<endl;
 }
 
 void Network::Construnt_Current_Topo(Optical *o_db, Lightpath *lp, int **current_topo, float bw, int modulation)
 {
+	//cout<<"Construnt_Current_Topo: "<<new_memory_count<<endl;
 	//multi-layer auxiliary graph considering find-grained wavelength layers
 	int req_slot_number = ceil((float)bw/(SLOT_CAPACITY*modulation));
 
-	float **ele_capacity = new float *[TOPO_NODE_NUM];
+	float **ele_capacity = new float *[TOPO_NODE_NUM]; new_memory_count++;
 	for (int i = 0; i < TOPO_NODE_NUM; i++)
 	{
-		ele_capacity[i] = new float[TOPO_NODE_NUM];
+		ele_capacity[i] = new float[TOPO_NODE_NUM]; new_memory_count++;
 		for (int j = 0; j < TOPO_NODE_NUM; j++)
 		{
 			ele_capacity[i][j] = 0;
 		}
 	}
 
-	//construct electrical-layer topo
+	//construct electrical layer topology
 	for (int m = 0; m < TOPO_LINK_NUM*SPECTRUM_SLOT_NUM; m++)
 	{
 		ele_capacity[lp[m].lightpath_src][lp[m].lightpath_dst] += lp[m].lightpath_residual_bw;
@@ -214,7 +230,7 @@ void Network::Construnt_Current_Topo(Optical *o_db, Lightpath *lp, int **current
 		}
 	}
 
-	//construct optical-layer topo
+	//construct optical layer topology
 	for (int y = 0; y < SPECTRUM_SLOT_NUM - req_slot_number + 1; y++)
 	{
 		for (int k = 0; k < TOPO_LINK_NUM; k++)
@@ -232,7 +248,7 @@ void Network::Construnt_Current_Topo(Optical *o_db, Lightpath *lp, int **current
 		}
 	}
 
-	//construct inter-layer links
+	//construct cross-layer connections
 	for (int n = 0; n < TOPO_NODE_NUM; n++)
 	{
 		for (int layer = 1; layer <= SPECTRUM_SLOT_NUM; layer++)
@@ -244,9 +260,10 @@ void Network::Construnt_Current_Topo(Optical *o_db, Lightpath *lp, int **current
 
 	for (int i = 0; i < TOPO_NODE_NUM; i++)
 	{
-		delete [] ele_capacity[i];
+		delete [] ele_capacity[i]; new_memory_count--;
 	}
-	delete [] ele_capacity;
+	delete [] ele_capacity; new_memory_count--;
+	//cout<<"Construnt_Current_Topo: "<<new_memory_count<<endl;
 }
 
 int Network::Lightpath_Modulation(int lp_length, int cal_mod)
@@ -279,7 +296,7 @@ void Network::OldNew_Lightpath_Combine(map<int, vector<int>> &split_lp, Lightpat
 	int new_lightpath_control = split_lightpath_control;
 	for (int i = 0; i < TOPO_LINK_NUM*SPECTRUM_SLOT_NUM; i++)
 	{
-		//whether split lightpath
+		//if split lightpath
 		if (split_lp.count(i))
 		{
 			continue;
@@ -290,7 +307,6 @@ void Network::OldNew_Lightpath_Combine(map<int, vector<int>> &split_lp, Lightpat
 		}
 		else
 		{
-			new_lp[new_lightpath_control].lightpath_src = old_lp[i].lightpath_src;
 			new_lp[new_lightpath_control].lightpath_src = old_lp[i].lightpath_src;
 			new_lp[new_lightpath_control].lightpath_dst = old_lp[i].lightpath_dst;
 			new_lp[new_lightpath_control].lightpath_modulation = old_lp[i].lightpath_modulation;
@@ -311,7 +327,7 @@ void Network::OldNew_Lightpath_Combine(map<int, vector<int>> &split_lp, Lightpat
 		}
 	}
 	lightpath_control = new_lightpath_control;
-	//cout<<"The number of combined Lightpaths: "<<lightpath_control<<endl;
+	//cout<<"After old new combination, number of Lightpath: "<<lightpath_control<<endl;
 }
 
 int Network::Path_Resource_Allocation(Optical *optical_db, Lightpath *lp, Traffic *req, int p, vector<int> current_path, float bw, int mod)
@@ -325,7 +341,7 @@ int Network::Path_Resource_Allocation(Optical *optical_db, Lightpath *lp, Traffi
 	int new_elepath_num = 0;
 	map<int, vector<int>> new_elepath;
 
-	//path resource allocation
+	//resource allocation on paths
 	for (int w = 0; w < current_path.size() - 1; w++)
 	{
 		int layer_decide = current_path[w]/TOPO_NODE_NUM;
@@ -333,17 +349,17 @@ int Network::Path_Resource_Allocation(Optical *optical_db, Lightpath *lp, Traffi
 		//same layer (specifically, same wavelength layer)
 		if (current_path[w]/TOPO_NODE_NUM == current_path[w+1]/TOPO_NODE_NUM)
 		{
-			//electrical-layer grooming
+			//electrical layer traffic grooming
 			if (current_path[w]/TOPO_NODE_NUM == 0)
 			{
 				float bandwidth = bw;
-				for (int r = 0; r < TOPO_LINK_NUM*SPECTRUM_SLOT_NUM; r++)
+				for (int r = 0; r < TOPO_LINK_NUM*SPECTRUM_SLOT_NUM && bandwidth > 0; r++)
 				{
 					if (lp[r].lightpath_src == current_path[w] && lp[r].lightpath_dst == current_path[w+1])
 					{
 						if (lp[r].lightpath_residual_bw >= bandwidth)
 						{
-							//cout<<"* used lightpath:"<<lp[r].lightpath_src<<"->"<<lp[r].lightpath_dst<<"("<<lp[r].lightpath_residual_bw<<", ";
+							//cout<<"* use optical layer"<<lp[r].lightpath_src<<"->"<<lp[r].lightpath_dst<<"("<<lp[r].lightpath_residual_bw<<", ";
 							lp[r].lightpath_residual_bw -= bandwidth;
 							lp[r].lightpath_supporting_bw += bandwidth;
 							bandwidth = 0;
@@ -356,12 +372,14 @@ int Network::Path_Resource_Allocation(Optical *optical_db, Lightpath *lp, Traffi
 						}
 						else if (lp[r].lightpath_residual_bw > 0)
 						{
-							//cout<<"used lightpath:"<<lp[r].lightpath_src<<"->"<<lp[r].lightpath_dst<<"("<<lp[r].lightpath_residual_bw<<", ";
+							//cout<<"use lightpath:"<<lp[r].lightpath_src<<"->"<<lp[r].lightpath_dst<<"("<<lp[r].lightpath_residual_bw<<", ";
 							bandwidth -= lp[r].lightpath_residual_bw;
 							lp[r].lightpath_supporting_bw += lp[r].lightpath_residual_bw;
 							lp[r].lightpath_residual_bw = 0;
-							//cout<<"residual capacitys"<<lp[r].lightpath_residual_bw<<")"<<endl;
+							//cout<<"residual capacity"<<lp[r].lightpath_residual_bw<<")"<<endl;
+							//this accommodation does not affects hops, because although traffic might use multiple lightpaths, these lightpaths all contribute to one hop
 						}
+						
 					}
 				}
 				//cout<<endl;
@@ -379,14 +397,14 @@ int Network::Path_Resource_Allocation(Optical *optical_db, Lightpath *lp, Traffi
 				continue;
 			}
 
-			//continue current lightpath on optical layer
+			//optical layer continue to use current lightpath
 			else
 			{
 				for (int c = 0; c < TOPO_LINK_NUM; c++)
 				{
 					if (optical_db[c].optical_src == current_path[w] % TOPO_NODE_NUM && optical_db[c].optical_dst == current_path[w+1] % TOPO_NODE_NUM)
 					{
-						//cout<<" used optical link:"<<optical_database[c].optical_src<<"->"<<optical_database[c].optical_dst<<endl;
+						//cout<<" use optical layer:"<<optical_database[c].optical_src<<"->"<<optical_database[c].optical_dst<<endl;
 						lp[lightpath_control].lightpath_path.push_back(optical_db[c].optical_dst);
 						lightpath_dist += optical_db[c].optical_length;
 						break;
@@ -398,8 +416,8 @@ int Network::Path_Resource_Allocation(Optical *optical_db, Lightpath *lp, Traffi
 		//cross layer
 		else
 		{
-			//Transponder link
-			if (current_path[w] % TOPO_NODE_NUM == current_path[w+1] % TOPO_NODE_NUM && current_path[w]/TOPO_NODE_NUM == 0) //outbound node is on electrical layer
+			//Transponder connection
+			if (current_path[w] % TOPO_NODE_NUM == current_path[w+1] % TOPO_NODE_NUM && current_path[w]/TOPO_NODE_NUM == 0) //src node is on electrical
 			{
 				//cout<<"* start a new lightpath"<<endl;
 				start_index = w;
@@ -409,7 +427,7 @@ int Network::Path_Resource_Allocation(Optical *optical_db, Lightpath *lp, Traffi
 				actual_slot_number = req_slot_number;
 				continue;
 			}
-			else if (current_path[w] % TOPO_NODE_NUM == current_path[w+1] % TOPO_NODE_NUM && current_path[w+1]/TOPO_NODE_NUM == 0) //inbound node is on electrical layer
+			else if (current_path[w] % TOPO_NODE_NUM == current_path[w+1] % TOPO_NODE_NUM && current_path[w+1]/TOPO_NODE_NUM == 0) //dst node is on electrical
 			{
 				if (Lightpath_Modulation(lightpath_dist, mod))
 				{
@@ -418,21 +436,21 @@ int Network::Path_Resource_Allocation(Optical *optical_db, Lightpath *lp, Traffi
 				}
 				else
 				{
-					//cout<<"Error! path is too long to assign a modulation format"<<endl;
+					//cout<<"Error! lightpath too long, no modulation format usable"<<endl;
 					lp[lightpath_control].lightpath_path.clear();
 					access_flag = 0;
 				}
 
 				if (access_flag == 1)
 				{
-					cout<<"finishing a new lightpath establishment"<<current_path[start_index]%TOPO_NODE_NUM<<"->"<<current_path[w]%TOPO_NODE_NUM<<", length:"<<lightpath_dist<<", modulaiton:"<<(lp+lightpath_control)->lightpath_modulation<<endl;
+					//cout<<"successfully setup a new lightpath"<<current_path[start_index]%TOPO_NODE_NUM<<"->"<<current_path[w]%TOPO_NODE_NUM<<", length:"<<lightpath_dist<<", modulation:"<<(lp+lightpath_control)->lightpath_modulation<<endl;
 					for (int b = 0; b < (lp+lightpath_control)->lightpath_path.size()-1; b++)
 					{
 						for (int c = 0; c < TOPO_LINK_NUM; c++)
 						{
 							if (optical_db[c].optical_src == (lp+lightpath_control)->lightpath_path[b] && optical_db[c].optical_dst == (lp+lightpath_control)->lightpath_path[b+1])
 							{
-								//cout<<" used fiber"<<optical_db[c].optical_src<<"->"<<optical_db[c].optical_dst<<", spectrum: ";
+								//cout<<" use fiber"<<optical_db[c].optical_src<<"->"<<optical_db[c].optical_dst<<", spectrum: ";
 								for (int st = 0; st < actual_slot_number; st++)
 								{
 									optical_db[c].spectrum_occupy[st + layer_decide - 1] = 1;
@@ -457,16 +475,17 @@ int Network::Path_Resource_Allocation(Optical *optical_db, Lightpath *lp, Traffi
 					(lp + lightpath_control)->lightpath_dst = current_path[w]%TOPO_NODE_NUM;
 					(lp + lightpath_control)->lightpath_residual_bw = SLOT_CAPACITY*actual_slot_number*(lp + lightpath_control)->lightpath_modulation - bw;
 					(lp + lightpath_control)->lightpath_supporting_bw = bw; 
-					//cout<<"lightpath residual bandwidth:"<<(lp + lightpath_control)->lightpath_residual_bw<<", path��";
+					//cout<<"residual capacity of this lightpath:"<<(lp + lightpath_control)->lightpath_residual_bw<<", traversing path:";
 					//for (int r = 0; r < (lp + lightpath_control)->lightpath_path.size(); r++)
 					//{
 						//cout<<(lp + lightpath_control)->lightpath_path[r]<<" ";
 					//}
 					//cout<<endl;
 					lightpath_control++; //existing lightpath number
-					//cout<<"current Lightpathm number: "<<lightpath_control<<endl<<endl;
+					//cout<<"curret Lightpath number: "<<lightpath_control<<endl<<endl;
 					new_lightpath_num++;
-					req[p].traffic_hops++;
+					req[p].traffic_hops++; 
+			
 					continue;
 				}
 
@@ -474,7 +493,7 @@ int Network::Path_Resource_Allocation(Optical *optical_db, Lightpath *lp, Traffi
 				{
 					if (new_lightpath_num)
 					{
-						//cout<<"traffic failed! tear down current lightpath"<<": ";
+						//cout<<"traffic fail! delete the lightpath"<<": ";
 						for (int i = 0; i < new_lightpath_num; i++)
 						{
 							//cout<<lp[lightpath_control-1].lightpath_src<<"->"<<lp[lightpath_control-1].lightpath_dst<<endl;
@@ -489,12 +508,13 @@ int Network::Path_Resource_Allocation(Optical *optical_db, Lightpath *lp, Traffi
 							lightpath_control--;
 						}
 						//cout<<endl;
-						req[p].traffic_hops = 0;
+						req[p].traffic_hops = 0; 
+						
 						break;
 					}
 					else if (new_elepath_num)
 					{
-						//cout<<"traffic failed! tear down current lightpath"<<": ";
+						//cout<<"traffic fail! release the electrical link occupied by the traffic"<<": ";
 						for (int r = 0; r < new_elepath_num; r++)
 						{
 							//cout<<new_elepath[r][0]<<"->"<<new_elepath[r][1]<<"(";
@@ -510,11 +530,11 @@ int Network::Path_Resource_Allocation(Optical *optical_db, Lightpath *lp, Traffi
 								}
 							}
 						}
-						req[p].traffic_hops = 0;
+						req[p].traffic_hops = 0; 
 					}
 					else
 					{
-						//cout<<"traffic failed!"<<endl;
+						//cout<<"traffic fail!"<<endl;
 						req[p].traffic_hops = 0;
 						break;
 					}
@@ -522,7 +542,7 @@ int Network::Path_Resource_Allocation(Optical *optical_db, Lightpath *lp, Traffi
 			}
 			else
 			{
-				cout<<"Error"<<endl;
+				cout<<"��Error��"<<endl;
 			}
 		}
 	}
@@ -541,37 +561,38 @@ int Network::Path_Resource_Allocation(Optical *optical_db, Lightpath *lp, Traffi
 
 void Network::Routing_and_Resource_Allocation(Optical *optical_db, Lightpath *lp, Traffic *req, int traffic_type)
 {
-	int **current_topo = new int *[TOPO_NODE_NUM*(1+SPECTRUM_SLOT_NUM)];
+	//cout<<"Routing_and_Resource_Allocation start: "<<new_memory_count<<endl;
+	int **current_topo = new int *[TOPO_NODE_NUM*(1+SPECTRUM_SLOT_NUM)]; new_memory_count++;
 	for (int t = 0; t < TOPO_NODE_NUM*(1+SPECTRUM_SLOT_NUM); t++)
 	{
-		current_topo[t] = new int[TOPO_NODE_NUM*(1+SPECTRUM_SLOT_NUM)];
+		current_topo[t] = new int[TOPO_NODE_NUM*(1+SPECTRUM_SLOT_NUM)]; new_memory_count++;
 	}
 
 	for (int p = 0; p < TOPO_NODE_NUM*(TOPO_NODE_NUM-1); p++)
 	{
-		cout<<endl<<"===================="<<endl;
-		if (traffic_type == 0)
-		{
-			cout<<"Baseline accommodation No. "<<p<<" traffic "<<req[p].traffic_src<<"->"<<req[p].traffic_dst<<", bandwidth:"<<req[p].traffic_bw<<endl;
-		}
-		else if (traffic_type == 1)
-		{
-			cout<<"Incremental accommodation No. "<<p<<" traffic "<<req[p].traffic_src<<"->"<<req[p].traffic_dst<<", bandwidth:"<<req[p].traffic_bw<<endl;
-		}
+		//cout<<endl<<"===================="<<endl;
+		//if (traffic_type == 0)
+		//{
+			//cout<<"Baseline traffic accommodation, No."<<p<<"traffic "<<req[p].traffic_src<<"->"<<req[p].traffic_dst<<", bandwidth demand:"<<req[p].traffic_bw<<endl;
+		//}
+		//else if (traffic_type == 1)
+		//{
+			//cout<<"Incremental traffic accommodation, No."<<p<<"traffic "<<req[p].traffic_src<<"->"<<req[p].traffic_dst<<", bandwidth demand:"<<req[p].traffic_bw<<endl;
+		//}
 		//else
 		//{
 			//cout<<"Error traffic type"<<endl;
 			//return;
 		//}
-		float flexible_bw = req[p].traffic_bw;
+		float flexible_bw = req[p].traffic_bw; //this is the amount of traffic bandwidth that we wish to put into the network in the beginning
 		vector<int> current_path;
-		int mod; //modulation level for path calculation
+		int mod; //modulation level of lightpath calculation, the entire path length should be no smaller than this
 
 		while (flexible_bw > 0)
 		{
 			for (mod = 1; mod < 5; mod++)
 			{
-				//initialize topo
+				//initiate topo
 				for (int t = 0; t < TOPO_NODE_NUM*(1+SPECTRUM_SLOT_NUM); t++)
 				{
 					for (int r = 0; r < TOPO_NODE_NUM*(1+SPECTRUM_SLOT_NUM); r++)
@@ -579,8 +600,8 @@ void Network::Routing_and_Resource_Allocation(Optical *optical_db, Lightpath *lp
 						current_topo[t][r] = MAX;
 					}
 				}
-				Construnt_Current_Topo(optical_db, lp, current_topo, flexible_bw, mod);
-				current_path = dijkstra(current_topo, req[p].traffic_src, req[p].traffic_dst, TOPO_NODE_NUM*(1+SPECTRUM_SLOT_NUM));
+				Construnt_Current_Topo(optical_db, lp, current_topo, flexible_bw, mod); //using the bandwidth, construct a resource topo
+				current_path = dijkstra(current_topo, req[p].traffic_src, req[p].traffic_dst, TOPO_NODE_NUM*(1+SPECTRUM_SLOT_NUM)); //calculate whether there exists a path in this topo
 				if (current_path.size() > 0)
 				{
 					break;
@@ -597,15 +618,18 @@ void Network::Routing_and_Resource_Allocation(Optical *optical_db, Lightpath *lp
 				}
 				else if (traffic_type == 1) //Incremental no path. re-calculate path with a lower bandwidth
 				{
-					flexible_bw -= MU;
+					//flexible_bw -= MU;
+					flexible_bw -= 1; //if there is no path, then we reduce the bw to try again!
 					continue;
 				}
 			} 
-			//there is a path
+			//path exists
 			else 
 			{
 				int longest_lightpath_length = 0;
 				int current_lightpath_length;
+				
+				//calculate the length (longest lightpath length) of the lightpath (optical layer) within the calculated path on the auxiliary graph
 				for (int ff = 0; ff < current_path.size()-1; ff++)
 				{
 					//same layer
@@ -632,11 +656,11 @@ void Network::Routing_and_Resource_Allocation(Optical *optical_db, Lightpath *lp
 					//cross layer
 					else
 					{
-						if (current_path[ff] % TOPO_NODE_NUM == current_path[ff+1] % TOPO_NODE_NUM && current_path[ff]/TOPO_NODE_NUM == 0) //outbound node is on electrical layer
+						if (current_path[ff] % TOPO_NODE_NUM == current_path[ff+1] % TOPO_NODE_NUM && current_path[ff]/TOPO_NODE_NUM == 0) //�����ڵ��ǵ��?
 						{
 							current_lightpath_length = 0;
 						}
-						else if (current_path[ff] % TOPO_NODE_NUM == current_path[ff+1] % TOPO_NODE_NUM && current_path[ff+1]/TOPO_NODE_NUM == 0) //inbound node is on electrical layer
+						else if (current_path[ff] % TOPO_NODE_NUM == current_path[ff+1] % TOPO_NODE_NUM && current_path[ff+1]/TOPO_NODE_NUM == 0) //����ڵ��ǵ��
 						{
 							if (current_lightpath_length > longest_lightpath_length)
 							{
@@ -652,8 +676,8 @@ void Network::Routing_and_Resource_Allocation(Optical *optical_db, Lightpath *lp
 
 				if (traffic_type == 0) //Baseline, there is a path
 				{
-					//cout<<"modualtion format for path calculation: "<<mod;
-					//cout<<", bandwidth for path calculation: "<<flexible_bw<<endl;
+					//cout<<"modulation in path calculation stage: "<<mod;
+					//cout<<", bandwidth demand in path calculation stage: "<<flexible_bw<<endl;
 					if (Lightpath_Modulation(longest_lightpath_length, mod))
 					{
 						Path_Resource_Allocation(optical_db, lp, req, p, current_path, flexible_bw, mod);
@@ -667,13 +691,13 @@ void Network::Routing_and_Resource_Allocation(Optical *optical_db, Lightpath *lp
 						req[p].traffic_actual_bw = 0;
 						req[p].traffic_success = 0;
 					}
-					break;
+					break; //for baseline traffic, there is no bw adjustment
 				}
 
 				else //Incremental, there is a path
 				{
-					//cout<<"modualtion format for path calculation: "<<mod;
-					//cout<<", bandwidth for path calculation: "<<flexible_bw<<endl;
+					//cout<<"modulation in path calculation stage: "<<mod;
+					//cout<<", bandwidth demand in path calculation stage: "<<flexible_bw<<endl;
 					if (Lightpath_Modulation(longest_lightpath_length, mod))
 					{
 						Path_Resource_Allocation(optical_db, lp, req, p, current_path, flexible_bw, mod);
@@ -685,40 +709,42 @@ void Network::Routing_and_Resource_Allocation(Optical *optical_db, Lightpath *lp
 						req[p].traffic_actual_bw = flexible_bw;
 						req[p].traffic_success = 1;
 						overall_traffic_success++;
-						break;
+						break; //a path has been found
 					}
 					else
 					{
 						//cout<<"Path acquired, but lightpaths are too long to allocate resource"<<endl;
 						req[p].traffic_actual_bw = 0;
 						req[p].traffic_success = 0;
-						flexible_bw -= MU;
-						continue;
+						//flexible_bw -= MU;
+						flexible_bw -= 1;
+						continue; //continue to search path under reduced bw
 					}
 				}
 			}
 		}
 		if (flexible_bw == 0 || current_path.size() == 0)
 		{
-			//cout<<"calculation failure"<<endl;
+			//cout<<"path calculation fail"<<endl;
 			req[p].traffic_actual_bw = 0;
 			req[p].traffic_success = 0;
 		}
-		//cout<<"number of traffic hops on electrical layer: "<<req[p].traffic_hops<<endl;
+		//cout<<"hops on electrical layer: "<<req[p].traffic_hops<<endl;
 	}
 
 	for (int x = 0; x < TOPO_NODE_NUM*(1+SPECTRUM_SLOT_NUM); x++)
 	{
-		delete [] current_topo[x];
+		delete [] current_topo[x]; new_memory_count--;
 	}
-	delete [] current_topo;
-
+	delete [] current_topo; new_memory_count--;
+	
+	//cout<<"Routing_and_Resource_Allocation end: "<<new_memory_count<<endl;
 	return;
 }
 
 void Network::Generate_Baseline_Configurations()
 {
-	lightpath_database = new Lightpath[TOPO_LINK_NUM*SPECTRUM_SLOT_NUM];
+	lightpath_database = new Lightpath[TOPO_LINK_NUM*SPECTRUM_SLOT_NUM]; new_memory_count++;
 
 	Routing_and_Resource_Allocation(optical_database, lightpath_database, baseline_traffic, 0);
 	
@@ -734,9 +760,9 @@ void Network::Generate_Baseline_Configurations()
 	}
 	average_hops = (float)total_hops/baseline_throughput;
 	
-	cout<<endl<<"Baseline successful traffic number: "<<access_no<<", current number of Lightpaths: "<<lightpath_control<<endl;
+	cout<<endl<<"Baseline successful traffic number: "<<access_no<<", current Lightpath number: "<<lightpath_control<<endl;
 	cout<<"*Baseline throughput: "<<baseline_throughput<<" (*6.25)Gbps"<<endl;
-	cout<<"*average bps traffic hops: "<<average_hops<<endl<<endl;
+	cout<<"*Average bps traffic hops: "<<average_hops<<endl<<endl;
 	
 	baseline_lightpath_control = lightpath_control;
 	baseline_overall_traffic_success = overall_traffic_success;
@@ -767,22 +793,22 @@ void Network::General_Incremental_Routing()
 		}
 	}
 	average_hops = (float)total_hops/incremental_throughput;
-	cout<<endl<<"Incremental successful traffic number: "<<incre_access_no<<", current number of Lightpaths: "<<lightpath_control<<", possible splitpoints number: "<<possible_splitpoints<<endl;
+	cout<<endl<<"Incremental successful traffic number: "<<incre_access_no<<", current Lightpath number: "<<lightpath_control<<", possible splitpoints number: "<<possible_splitpoints<<endl;
 	cout<<"*Incremental throughput: "<<incremental_throughput<<" (*6.25)Gbps"<<endl;
-	cout<<"*average bps traffic hops: "<<average_hops<<endl<<endl;
+	cout<<"*Average bps traffic hops: "<<average_hops<<endl<<endl;
 
 	pre_split_lightpath_control = lightpath_control;
 	pre_split_overall_traffic_success = incre_access_no;
 
 	//////////////////////////////////////////////////////////////////////////
-	//post-split traffic requests
-	incremental_residual_traffic = new Traffic[TOPO_NODE_NUM*(TOPO_NODE_NUM-1)];
+	//post-split
+	incremental_residual_traffic = new Traffic[TOPO_NODE_NUM*(TOPO_NODE_NUM-1)]; new_memory_count++;
 	for (int i = 0; i < TOPO_NODE_NUM*(TOPO_NODE_NUM-1); i++)
 	{
 		incremental_residual_traffic[i].traffic_ID = incremental_traffic[i].traffic_ID;
 		incremental_residual_traffic[i].traffic_src = incremental_traffic[i].traffic_src;
 		incremental_residual_traffic[i].traffic_dst = incremental_traffic[i].traffic_dst;
-		incremental_residual_traffic[i].traffic_bw = incremental_traffic[i].traffic_bw - incremental_traffic[i].traffic_actual_bw; //residual bandwidth for next-step routing
+		incremental_residual_traffic[i].traffic_bw = incremental_traffic[i].traffic_bw - incremental_traffic[i].traffic_actual_bw; //ʣ���������·��?
 		incremental_residual_traffic[i].traffic_actual_bw = 0;
 		incremental_residual_traffic[i].traffic_success = 0;
 	}
@@ -923,13 +949,14 @@ void Network::Combine(int n, int m, int a[], int b[], const int M, map<int, vect
 
 vector<int> Network::Greedy_Splitpoint_Determination(int greedy_option, Lightpath *lp, int lp_num, int sp_num)
 {
+	//cout<<"Greedy_Splitpoint_Determination start: "<<new_memory_count<<endl;
 	map<int, vector<int>> possible_splitpoints;
 	vector<int> splitpoints;
-	int n = lp[lp_num].lightpath_path.size() - 2;
-	int m = sp_num;
+	int n = lp[lp_num].lightpath_path.size() - 2; //total number of splitpoints on lightpath
+	int m = sp_num; //number of splitpoints to select
 
-	int *a = new int[n];
-	int *b = new int[m];
+	int *a = new int[n]; new_memory_count++;
+	int *b = new int[m]; new_memory_count++;
 	for(int i = 0; i < n; i++)
 	{
 		a[i] = i + 1;
@@ -1006,9 +1033,10 @@ vector<int> Network::Greedy_Splitpoint_Determination(int greedy_option, Lightpat
 			}
 		}
 	}
-	delete [] a;
-	delete [] b;
-	bubble(splitpoints, sp_num); //sorting
+	delete [] a; new_memory_count--;
+	delete [] b; new_memory_count--;
+	bubble(splitpoints, sp_num); //sorting based on node sequence
+	//cout<<"Greedy_Splitpoint_Determination end: "<<new_memory_count<<endl;
 	return splitpoints;
 }
 
@@ -1022,8 +1050,8 @@ int Network::Split_Lightpath(int t, vector<int> splitpoints, Optical *optical_db
 	if (lp[t].lightpath_path.size() == 2 || lp[t].lightpath_modulation == 4)
 	{
 		cout<<"Error"<<endl<<"--"<<endl;
-		cout<<"Path size: "<<lp[t].lightpath_path.size()<<", modulation: "<<lp[t].lightpath_modulation<<endl;
-		cout<<"["<<t<<"] "<<lp[t].lightpath_src<<"->"<<lp[t].lightpath_dst<<" ����split"<<endl;
+		//cout<<"Path size: "<<lp[t].lightpath_path.size()<<", modulation: "<<lp[t].lightpath_modulation<<endl;
+		//cout<<"["<<t<<"] "<<lp[t].lightpath_src<<"->"<<lp[t].lightpath_dst<<" cannot be split"<<endl;
 		new_lp[split_lightpath_control].lightpath_src = lp[t].lightpath_src;
 		new_lp[split_lightpath_control].lightpath_dst = lp[t].lightpath_dst;
 		new_lp[split_lightpath_control].lightpath_modulation = lp[t].lightpath_modulation;
@@ -1042,30 +1070,30 @@ int Network::Split_Lightpath(int t, vector<int> splitpoints, Optical *optical_db
 		split_flag = 0;		
 	}
 
-	//this lightpath can be split
+	//lightpath can be split
 	else if (lp[t].lightpath_path.size() > 2)
 	{
 		if (lp[t].lightpath_path.size() < splitpoints.size() + 2)
 		{
-			cout<<"splitpoints number Error!"<<endl;
-			cout<<"Lightpath size: "<<lp[t].lightpath_path.size()<<": ";
-			for (int i = 0; i < lp[t].lightpath_path.size(); i++)
-			{
-				cout<<lp[t].lightpath_path[i]<<" ";
-			}
-			cout<<endl;
-			cout<<"splitpoint number: "<<splitpoints.size()<<": ";
-			for (int i = 0; i < splitpoints.size(); i++)
-			{
-				cout<<splitpoints[i]<<" ";
-			}
-			cout<<endl;
+			//cout<<"splitpoints number Error!"<<endl;
+			//cout<<"Lightpath size: "<<lp[t].lightpath_path.size()<<": ";
+			//for (int i = 0; i < lp[t].lightpath_path.size(); i++)
+			//{
+				//cout<<lp[t].lightpath_path[i]<<" ";
+			//}
+			//cout<<endl;
+			//cout<<"splitpoint number: "<<splitpoints.size()<<": ";
+			//for (int i = 0; i < splitpoints.size(); i++)
+			//{
+				//cout<<splitpoints[i]<<" ";
+			//}
+			//cout<<endl;
 			
 		}
-		else //do the split operation
+		else //perform split operation
 		{
 			//cout<<"--"<<endl;
-			//cout<<"["<<t<<"] "<<lp[t].lightpath_src<<"->"<<lp[t].lightpath_dst<<"split, moduation"<<lp[t].lightpath_modulation<<", residual bandwidth: "<<lp[t].lightpath_residual_bw;
+			//cout<<"["<<t<<"] "<<lp[t].lightpath_src<<"->"<<lp[t].lightpath_dst<<"lightpath is split, modulation"<<lp[t].lightpath_modulation<<", residual capacity: "<<lp[t].lightpath_residual_bw;
 			//cout<<", spectrum width"<<lp[t].lightpath_used_slots_num<<": ";
 			//for (int h = 0; h < lp[t].lightpath_used_slots.size(); h++)
 			//{
@@ -1073,7 +1101,7 @@ int Network::Split_Lightpath(int t, vector<int> splitpoints, Optical *optical_db
 			//}
 			//cout<<endl;
 
-			//release the occupied spectrum slots
+			//release the originally-occupied spectrum slots
 			for (int w = 0; w < lp[t].lightpath_path.size()-1; w++)
 			{
 				for (int v = 0; v < TOPO_LINK_NUM; v++)
@@ -1100,6 +1128,7 @@ int Network::Split_Lightpath(int t, vector<int> splitpoints, Optical *optical_db
 				new_lp[split_lightpath_control].lightpath_dst = lp[t].lightpath_path[splitpoints[split]];
 				//cout<<new_lp[split_lightpath_control].lightpath_src<<"->"<<new_lp[split_lightpath_control].lightpath_dst<<" ";
 
+				//new lightpath
 				new_lp[split_lightpath_control].lightpath_path.clear();
 				int temp_flag = 0;
 				for (int y = 0; y < lp[t].lightpath_path.size(); y++)
@@ -1152,10 +1181,10 @@ int Network::Split_Lightpath(int t, vector<int> splitpoints, Optical *optical_db
 				//{
 					//cout<<new_lp[split_lightpath_control].lightpath_path[i]<<" ";
 				//}
-				//cout<<endl<<"new modulation format: "<<new_lp[split_lightpath_control].lightpath_modulation<<" ";
-				//cout<<new spectrum width: "<<new_lp[split_lightpath_control].lightpath_used_slots_num<<" ";
+				//cout<<endl<<"new modulation: "<<new_lp[split_lightpath_control].lightpath_modulation<<" ";
+				//cout<<"new spectrum width: "<<new_lp[split_lightpath_control].lightpath_used_slots_num<<" ";
 				new_lp[split_lightpath_control].lightpath_residual_bw = lp[t].lightpath_residual_bw + new_lp[split_lightpath_control].lightpath_used_slots_num*new_lp[split_lightpath_control].lightpath_modulation*SLOT_CAPACITY - lp[t].lightpath_modulation*lp[t].lightpath_used_slots_num*SLOT_CAPACITY;
-				//cout<<"new residual bandwidth: "<<new_lp[split_lightpath_control].lightpath_residual_bw<<endl;
+				//cout<<"new residual capacity: "<<new_lp[split_lightpath_control].lightpath_residual_bw<<endl;
 
 				//Splitted lightpath spectrum allocation
 				//Unsplitted unchanged, splitted first fit
@@ -1186,7 +1215,7 @@ int Network::Split_Lightpath(int t, vector<int> splitpoints, Optical *optical_db
 							}
 						}
 
-						//assign spectrum slots to new lightpaths
+						//assign spectrum slots to new lightpath
 						if (temp_flag == 0)
 						{
 							//we find the splitted lightpath location on spectrum
@@ -1231,16 +1260,18 @@ int Network::Split_Lightpath(int t, vector<int> splitpoints, Optical *optical_db
 
 void Network::Greedy_Lightpath_Splitting(int splitpoint_num, int greedy_option_A, int greedy_option_B, Optical *o_db, Lightpath *lp_db, Traffic *req)
 {
+	//cout<<"Greedy_Lightpath_Splitting start: "<<new_memory_count<<endl;
 	lightpath_control = pre_split_lightpath_control;
 	overall_traffic_success = pre_split_overall_traffic_success;
 	split_lightpath_control = 0;
 	
 	//////////////////////////////////////////////////////////////////////////
 	//temp database for lightpath selection
-	Optical *temp_optical_database = new Optical[TOPO_LINK_NUM];
-	Lightpath *temp_lightpath_database = new Lightpath[TOPO_LINK_NUM*SPECTRUM_SLOT_NUM];
-	Traffic *temp_req = new Traffic[TOPO_NODE_NUM*(TOPO_NODE_NUM-1)];	
-	Copy_Optical_Database(o_db, temp_optical_database);	
+	Optical *temp_optical_database = new Optical[TOPO_LINK_NUM]; new_memory_count++;
+	Lightpath *temp_lightpath_database = new Lightpath[TOPO_LINK_NUM*SPECTRUM_SLOT_NUM]; new_memory_count++;
+	Traffic *temp_req = new Traffic[TOPO_NODE_NUM*(TOPO_NODE_NUM-1)]; new_memory_count++;
+
+	Copy_Optical_Database(o_db, temp_optical_database);	new_memory_count += TOPO_LINK_NUM;
 	Copy_Lightpath_Database(lp_db, temp_lightpath_database);
 	Copy_Traffic_Database(req, temp_req);
 	
@@ -1251,26 +1282,30 @@ void Network::Greedy_Lightpath_Splitting(int splitpoint_num, int greedy_option_A
 
 	for (int i = 0; i < TOPO_LINK_NUM; i++)
 	{
-		delete [] temp_optical_database[i].spectrum_occupy;
+		delete [] temp_optical_database[i].spectrum_occupy; new_memory_count--;
 	}
-	delete [] temp_optical_database;
-	delete [] temp_lightpath_database;
-	delete [] temp_req;
+	delete [] temp_optical_database; new_memory_count--;
+	delete [] temp_lightpath_database; new_memory_count--;
+	delete [] temp_req; new_memory_count--;
+
+	//cout<<"Greedy_Lightpath_Splitting middle-1: "<<new_memory_count<<endl;
 	
 	//////////////////////////////////////////////////////////////////////////
-	//base for split and post-split resource allocation
-	Optical *temp_optical_database_postsplit = new Optical[TOPO_LINK_NUM];
-	Lightpath *temp_lightpath_database_postsplit = new Lightpath[TOPO_LINK_NUM*SPECTRUM_SLOT_NUM];
-	Traffic *temp_req_postsplit = new Traffic[TOPO_NODE_NUM*(TOPO_NODE_NUM-1)];
-	Copy_Optical_Database(o_db, temp_optical_database_postsplit);	
+	//database for split and resource allocation after that
+	Optical *temp_optical_database_postsplit = new Optical[TOPO_LINK_NUM]; new_memory_count++;
+	Lightpath *temp_lightpath_database_postsplit = new Lightpath[TOPO_LINK_NUM*SPECTRUM_SLOT_NUM]; new_memory_count++;
+	Traffic *temp_req_postsplit = new Traffic[TOPO_NODE_NUM*(TOPO_NODE_NUM-1)]; new_memory_count++;
+	
+	Copy_Optical_Database(o_db, temp_optical_database_postsplit); new_memory_count += TOPO_LINK_NUM;
 	Copy_Lightpath_Database(lp_db, temp_lightpath_database_postsplit);
 	Copy_Traffic_Database(req, temp_req_postsplit);
 
 	float affected_bandwidth = 0;
 	float increased_hops_bw = 0;
-	Lightpath *lightpath_database_split_greedy_result = new Lightpath[TOPO_LINK_NUM*SPECTRUM_SLOT_NUM];
+	Lightpath *lightpath_database_split_greedy_result = new Lightpath[TOPO_LINK_NUM*SPECTRUM_SLOT_NUM]; new_memory_count++;
+	
 	map<int, vector<int>> split_lp_and_points;
-	//decide how to split every lightpath according to target_lightpath
+	//based on current target_lightpath result, decide how to split each lightpath
 	for (int r = 0; r < target_lightpath.size(); r++)
 	{
 		//need to selected target_lp_splitnum[r] splitpoints
@@ -1296,6 +1331,20 @@ void Network::Greedy_Lightpath_Splitting(int splitpoint_num, int greedy_option_A
 	OldNew_Lightpath_Combine(split_lp_and_points, temp_lightpath_database_postsplit, lightpath_database_split_greedy_result);
 	Routing_and_Resource_Allocation(temp_optical_database_postsplit, lightpath_database_split_greedy_result, temp_req_postsplit, 1);
 
+	map<int, int> split_point_distribute;
+	for (int n = 0; n < TOPO_NODE_NUM; n++)
+	{
+		split_point_distribute[n] = 0;
+	}
+
+	for (int s = 0; s < target_lightpath.size(); s++)
+	{
+		for (int t = 0; t < split_lp_and_points[target_lightpath[s]].size(); t++)
+		{
+			split_point_distribute[temp_lightpath_database_postsplit[target_lightpath[s]].lightpath_path[split_lp_and_points[target_lightpath[s]][t]]]++;
+		}
+	}
+
 	float incremental_postsplit_throughput = 0;
 	int incre_postsplit_access_no = 0;
 	int total_hops = 0;
@@ -1308,19 +1357,25 @@ void Network::Greedy_Lightpath_Splitting(int splitpoint_num, int greedy_option_A
 		total_hops += temp_req_postsplit[x].traffic_hops*temp_req_postsplit[x].traffic_actual_bw;
 	}
 	average_hops = (float)total_hops/incremental_postsplit_throughput;
-	//cout<<endl<<"number of accommodated traffic: "<<incre_postsplit_access_no<<", current Lightpath number: "<<lightpath_control<<endl;
+	//cout<<endl<<"accommodated traffic number: "<<incre_postsplit_access_no<<", current Lightpath number: "<<lightpath_control<<endl;
 	//cout<<"*Incremental with Splitting throughput: "<<incremental_postsplit_throughput<<" (*6.25)Gbps"<<endl;
 	//cout<<"*Affected bandwidth: "<<affected_bandwidth<<endl;
-	//cout<<"*average bps traffic hops: "<<average_hops<<endl<<endl;
-	//cout<<"*throughput, Affected bandwidth, average bps traffic hops"<<endl;
+	//cout<<"*Average bps traffic hops: "<<average_hops<<endl<<endl;
+	//cout<<"*Throughput, Affected bandwidth, average bps traffic hops"<<endl;
 	cout<<incremental_postsplit_throughput<<" "<<affected_bandwidth<<" "<<average_hops<<" "<<increased_hops_bw<<endl;
+	cout<<"SplitPoint distribution: ";
+	for (int f = 0; f < TOPO_NODE_NUM; f++)
+	{
+		cout<<split_point_distribute[f]<<" ";
+	}
+	cout<<endl;
 	
 	//for (int i = 0; i < TOPO_LINK_NUM*SPECTRUM_SLOT_NUM; i++)
 	//{
 		//if (lightpath_database_split_greedy_result[i].lightpath_src + lightpath_database_split_greedy_result[i].lightpath_dst + lightpath_database_split_greedy_result[i].lightpath_modulation + lightpath_database_split_greedy_result[i].lightpath_used_slots_num + lightpath_database_split_greedy_result[i].lightpath_residual_bw)
 		//{
 			//cout<<"--"<<endl;
-			//cout<<"["<<i<<"] "<<lightpath_database_split_greedy_result[i].lightpath_src<<"->"<<lightpath_database_split_greedy_result[i].lightpath_dst<<", modulation format: "<<lightpath_database_split_greedy_result[i].lightpath_modulation<<", residual bandwidth: "<<lightpath_database_split_greedy_result[i].lightpath_residual_bw<<", used spectrum: "<<lightpath_database_split_greedy_result[i].lightpath_used_slots_num<<"number: ";
+			//cout<<"["<<i<<"] "<<lightpath_database_split_greedy_result[i].lightpath_src<<"->"<<lightpath_database_split_greedy_result[i].lightpath_dst<<", modulation: "<<lightpath_database_split_greedy_result[i].lightpath_modulation<<", residual capacity: "<<lightpath_database_split_greedy_result[i].lightpath_residual_bw<<", used spectrum: "<<lightpath_database_split_greedy_result[i].lightpath_used_slots_num<<"count: ";
 			//for (int j = 0; j < lightpath_database_split_greedy_result[i].lightpath_used_slots.size(); j++)
 			//{
 				//cout<<lightpath_database_split_greedy_result[i].lightpath_used_slots[j]<<" ";
@@ -1335,28 +1390,31 @@ void Network::Greedy_Lightpath_Splitting(int splitpoint_num, int greedy_option_A
 	//}
 	for (int i = 0; i < TOPO_LINK_NUM; i++)
 	{
-		delete [] temp_optical_database_postsplit[i].spectrum_occupy;
+		delete [] temp_optical_database_postsplit[i].spectrum_occupy; new_memory_count--;
 	}
-	delete [] temp_optical_database_postsplit;
-	delete [] temp_lightpath_database_postsplit;
-	delete [] temp_req_postsplit;
-	delete [] lightpath_database_split_greedy_result;
+	delete [] temp_optical_database_postsplit; new_memory_count--;
+	delete [] temp_lightpath_database_postsplit; new_memory_count--;
+	delete [] temp_req_postsplit; new_memory_count--;
+	delete [] lightpath_database_split_greedy_result; new_memory_count--;
+
+	//cout<<"Greedy_Lightpath_Splitting end: "<<new_memory_count<<endl;
 	return;
 }
 
 float Network::Calculate_Throughput(int split_num, int *split_index, map<int, int> &split_lp, map<int, int> &split_point, Optical *optical_db, Lightpath *lp, Traffic *req, int split_option_B, float *affected_bw, float *average_hops, float *increased_hops_bw)
 {
-	Optical *temp_optical_database = new Optical[TOPO_LINK_NUM];
-	Lightpath *temp_lightpath_database = new Lightpath[TOPO_LINK_NUM*SPECTRUM_SLOT_NUM];
-	Traffic *temp_req = new Traffic[TOPO_NODE_NUM*(TOPO_NODE_NUM-1)];
-	Copy_Optical_Database(optical_db, temp_optical_database);
-	Copy_Lightpath_Database(lp, temp_lightpath_database);
-	Copy_Traffic_Database(req, temp_req);
+	Optical *temp_optical_database = new Optical[TOPO_LINK_NUM]; new_memory_count++;
+	Lightpath *temp_lightpath_database = new Lightpath[TOPO_LINK_NUM*SPECTRUM_SLOT_NUM]; new_memory_count++;
+	Traffic *temp_req = new Traffic[TOPO_NODE_NUM*(TOPO_NODE_NUM-1)]; new_memory_count++;
+	
+	Copy_Optical_Database(optical_db, temp_optical_database); new_memory_count += TOPO_LINK_NUM;
+	Copy_Lightpath_Database(lp, temp_lightpath_database); 
+	Copy_Traffic_Database(req, temp_req); 
 
 	*affected_bw = 0;
 	*increased_hops_bw = 0;
 
-	Lightpath *temp_lightpath_splitresult = new Lightpath[TOPO_LINK_NUM*SPECTRUM_SLOT_NUM];
+	Lightpath *temp_lightpath_splitresult = new Lightpath[TOPO_LINK_NUM*SPECTRUM_SLOT_NUM]; new_memory_count++;
 	
 	map<int, vector<int>> splitpoints; //record the index of splitpoints according to the index of lightpath
 	for (int r = 0; r < split_num; r++)
@@ -1393,13 +1451,15 @@ float Network::Calculate_Throughput(int split_num, int *split_index, map<int, in
 	}
 	*average_hops = (float)total_hops/result_throughput;
 
+	Copy_Traffic_Database(temp_req, req);
+
 	for (int y = 0; y < TOPO_LINK_NUM; y++)
 	{
-		delete [] temp_optical_database[y].spectrum_occupy;
+		delete [] temp_optical_database[y].spectrum_occupy; new_memory_count--;
 	}
-	delete [] temp_optical_database;
-	delete [] temp_lightpath_database;
-	delete [] temp_req;
+	delete [] temp_optical_database; new_memory_count--;
+	delete [] temp_lightpath_database; new_memory_count--;
+	delete [] temp_req; new_memory_count--;
 
 	return result_throughput;
 }
@@ -1457,11 +1517,13 @@ void Network::SA_Lightpath_Splitting(int splitpoint_num, int split_option_B, Opt
 	lightpath_control = pre_split_lightpath_control;
 	overall_traffic_success = pre_split_overall_traffic_success;
 
-	Optical *optical_database_split_SA = new Optical[TOPO_LINK_NUM];
-	Lightpath *lightpath_database_split_SA = new Lightpath[TOPO_LINK_NUM*SPECTRUM_SLOT_NUM];
-	Traffic *traffic_SA = new Traffic[TOPO_NODE_NUM*(TOPO_NODE_NUM-1)];
+	Optical *optical_database_split_SA = new Optical[TOPO_LINK_NUM]; new_memory_count++;
+	Lightpath *lightpath_database_split_SA = new Lightpath[TOPO_LINK_NUM*SPECTRUM_SLOT_NUM]; new_memory_count++;
+	Traffic *traffic_SA = new Traffic[TOPO_NODE_NUM*(TOPO_NODE_NUM-1)]; new_memory_count++;
+
+	Traffic *traffic_SA_for_test = new Traffic[TOPO_NODE_NUM*(TOPO_NODE_NUM-1)]; new_memory_count++;
 	
-	Copy_Optical_Database(o_db, optical_database_split_SA);
+	Copy_Optical_Database(o_db, optical_database_split_SA); new_memory_count += TOPO_LINK_NUM;
 	Copy_Lightpath_Database(lp_db, lightpath_database_split_SA);
 	Copy_Traffic_Database(req, traffic_SA);
 
@@ -1475,15 +1537,17 @@ void Network::SA_Lightpath_Splitting(int splitpoint_num, int split_option_B, Opt
 	//all possible splitpoints
 	map<int, int> possible_split_lightpath;
 	map<int, int> possible_split_point;
+	map<int, int> possible_split_real_node_index;
 	int nn = 0;
 	for (int r = 0; r < TOPO_LINK_NUM*SPECTRUM_SLOT_NUM; r++)
 	{
-		if (lightpath_database_split_SA[r].lightpath_path.size() > 2 && lightpath_database_split_SA[r].lightpath_modulation < 4) //lightpaths that can be split possibly
+		if (lightpath_database_split_SA[r].lightpath_path.size() > 2 && lightpath_database_split_SA[r].lightpath_modulation < 4) //���Ա�split��lightpaths
 		{
 			for (int w = 1; w < lightpath_database_split_SA[r].lightpath_path.size()-1; w++)
 			{
 				possible_split_lightpath[nn] = r;
 				possible_split_point[nn] = w;
+				possible_split_real_node_index[nn] = lightpath_database_split_SA[r].lightpath_path[w];
 				nn++;
 			}
 		}
@@ -1491,7 +1555,7 @@ void Network::SA_Lightpath_Splitting(int splitpoint_num, int split_option_B, Opt
 
 	//initialize splitpoint_num splitpoints
 	int splitpoints_pool_size = possible_split_lightpath.size();
-	int *selected_splitpoints = new int[splitpoint_num]; //record index in terms of splitpoints_pool_size
+	int *selected_splitpoints = new int[splitpoint_num]; new_memory_count++; //record index in terms of splitpoints_pool_size
 	selected_splitpoints[0] = rand() % splitpoints_pool_size;
 	for (int j = 1; j < splitpoint_num; j++)
 	{
@@ -1516,7 +1580,7 @@ void Network::SA_Lightpath_Splitting(int splitpoint_num, int split_option_B, Opt
 	//for (int w = 0; w < splitpoint_num; w++)
 	//{
 		//cout<<"--"<<endl;
-		//cout<<"["<<possible_split_lightpath[selected_splitpoints[w]]<<"] "<<lightpath_database_split_SA[possible_split_lightpath[selected_splitpoints[w]]].lightpath_src<<"->"<<lightpath_database_split_SA[possible_split_lightpath[selected_splitpoints[w]]].lightpath_dst<<", modulation format: "<<lightpath_database_split_SA[possible_split_lightpath[selected_splitpoints[w]]].lightpath_modulation<<", residual bandwidth: "<<lightpath_database_split_SA[possible_split_lightpath[selected_splitpoints[w]]].lightpath_residual_bw<<", used spectrum: "<<lightpath_database_split_SA[possible_split_lightpath[selected_splitpoints[w]]].lightpath_used_slots_num<<"number: ";
+		//cout<<"["<<possible_split_lightpath[selected_splitpoints[w]]<<"] "<<lightpath_database_split_SA[possible_split_lightpath[selected_splitpoints[w]]].lightpath_src<<"->"<<lightpath_database_split_SA[possible_split_lightpath[selected_splitpoints[w]]].lightpath_dst<<", modulation: "<<lightpath_database_split_SA[possible_split_lightpath[selected_splitpoints[w]]].lightpath_modulation<<", residual capacity: "<<lightpath_database_split_SA[possible_split_lightpath[selected_splitpoints[w]]].lightpath_residual_bw<<", used spectrum: "<<lightpath_database_split_SA[possible_split_lightpath[selected_splitpoints[w]]].lightpath_used_slots_num<<"count: ";
 		//for (int j = 0; j < lightpath_database_split_SA[possible_split_lightpath[selected_splitpoints[w]]].lightpath_used_slots.size(); j++)
 		//{
 			//cout<<lightpath_database_split_SA[possible_split_lightpath[selected_splitpoints[w]]].lightpath_used_slots[j]<<" ";
@@ -1541,15 +1605,17 @@ void Network::SA_Lightpath_Splitting(int splitpoint_num, int split_option_B, Opt
 	float temperature = SA_initial_temperature;
 	while (temperature > SA_end_temperature)
 	{
-		//cout<<"original: "<<original_throughput;
+		cout<<"original: "<<original_throughput;
 		//cout<<"---"<<endl;
-		int *virtual_selected_points = new int[splitpoint_num];
+		int *virtual_selected_points = new int[splitpoint_num]; new_memory_count++;
+		
 		Splitpoint_Exchange(splitpoint_num, splitpoints_pool_size, selected_splitpoints, virtual_selected_points);
+		
 		//cout<<"Current splitpoints:"<<endl;
 		//for (int w = 0; w < splitpoint_num; w++)
 		//{
 			//cout<<"--"<<endl;
-			//cout<<"["<<possible_split_lightpath[virtual_selected_points[w]]<<"] "<<lightpath_database_split_SA[possible_split_lightpath[virtual_selected_points[w]]].lightpath_src<<"->"<<lightpath_database_split_SA[possible_split_lightpath[virtual_selected_points[w]]].lightpath_dst<<", modulation format: "<<lightpath_database_split_SA[possible_split_lightpath[virtual_selected_points[w]]].lightpath_modulation<<", residual bandwidth: "<<lightpath_database_split_SA[possible_split_lightpath[virtual_selected_points[w]]].lightpath_residual_bw<<", used spectrum: "<<lightpath_database_split_SA[possible_split_lightpath[virtual_selected_points[w]]].lightpath_used_slots_num<<"number: ";
+			//cout<<"["<<possible_split_lightpath[virtual_selected_points[w]]<<"] "<<lightpath_database_split_SA[possible_split_lightpath[virtual_selected_points[w]]].lightpath_src<<"->"<<lightpath_database_split_SA[possible_split_lightpath[virtual_selected_points[w]]].lightpath_dst<<", modulation: "<<lightpath_database_split_SA[possible_split_lightpath[virtual_selected_points[w]]].lightpath_modulation<<", residual capacity: "<<lightpath_database_split_SA[possible_split_lightpath[virtual_selected_points[w]]].lightpath_residual_bw<<", used spectrum: "<<lightpath_database_split_SA[possible_split_lightpath[virtual_selected_points[w]]].lightpath_used_slots_num<<"count: ";
 			//for (int j = 0; j < lightpath_database_split_SA[possible_split_lightpath[virtual_selected_points[w]]].lightpath_used_slots.size(); j++)
 			//{
 				//cout<<lightpath_database_split_SA[possible_split_lightpath[virtual_selected_points[w]]].lightpath_used_slots[j]<<" ";
@@ -1568,7 +1634,7 @@ void Network::SA_Lightpath_Splitting(int splitpoint_num, int split_option_B, Opt
 		float virtual_throughput = Calculate_Throughput(splitpoint_num, virtual_selected_points, possible_split_lightpath, possible_split_point, optical_database_split_SA, lightpath_database_split_SA, traffic_SA, split_option_B, &virtual_affected_bandwidth, &virtual_average_hops, &virtual_increased_hops);
 		lightpath_control = temp_4;
 		overall_traffic_success = temp_5;
-		//cout<<", Virtual thrpt: "<<virtual_throughput<<" (";
+		cout<<", Virtual thrpt: "<<virtual_throughput<<" (";
 
 		double eta;
 		if (virtual_throughput >= original_throughput)
@@ -1596,31 +1662,55 @@ void Network::SA_Lightpath_Splitting(int splitpoint_num, int split_option_B, Opt
 			original_affected_bandwidth = virtual_affected_bandwidth;
 			original_average_hops = virtual_average_hops;
 			original_increased_hops = virtual_increased_hops;
+
+			Copy_Traffic_Database(traffic_SA, traffic_SA_for_test);
 		}
-		else
-		{
+		//else
+		//{
 			//cout<<eta<<" <= "<<ruler<<", declined, ";
-		}
-		//cout<<"Throughput: "<<original_throughput<<")"<<endl;
+		//}
+		cout<<"Throughput: "<<original_throughput<<")"<<endl;
 		temperature = temperature*SA_cooling_param;
-		delete [] virtual_selected_points;
+		delete [] virtual_selected_points; new_memory_count--;
 	}
 
 	//cout<<"current Lightpath number: "<<lightpath_control<<endl;
 	//cout<<"*SA throughput:"<<original_throughput<<" (*6.25)Gbps"<<endl;
 	//cout<<"*Affected bandwidth: "<<original_affected_bandwidth<<endl;
-	//cout<<"*average bps traffic hops: "<<original_average_hops<<endl<<endl;
-	//cout<<"*throughput, Affected bandwidth, average bps traffic hops"<<endl;
+	//cout<<"*Average bps traffic hops: "<<original_average_hops<<endl<<endl;
+	//cout<<"*Throughput, Affected bandwidth, Average bps traffic hops"<<endl;
 	cout<<original_throughput<<" "<<original_affected_bandwidth<<" "<<original_average_hops<<" "<<original_increased_hops<<endl;
+
+	map<int, int> split_point_distribute;
+	for (int n = 0; n < TOPO_NODE_NUM; n++)
+	{
+		split_point_distribute[n] = 0;
+	}
+	for (int s = 0; s < splitpoint_num; s++)
+	{
+		split_point_distribute[possible_split_real_node_index[selected_splitpoints[s]]]++;
+	}
+	cout<<"SplitPoint distribution: ";
+	for (int f = 0; f < TOPO_NODE_NUM; f++)
+	{
+		cout<<split_point_distribute[f]<<" ";
+	}
+	cout<<endl;
+
+	for (int s = 0; s < TOPO_NODE_NUM*(TOPO_NODE_NUM-1); s++)
+	{
+		cout<<s<<": "<<traffic_SA_for_test[s].traffic_src<<"->"<<traffic_SA_for_test[s].traffic_dst<<": "<<traffic_SA_for_test[s].traffic_bw<<" "<<traffic_SA_for_test[s].traffic_actual_bw<<endl;
+	}
 
 	for (int i = 0; i < TOPO_LINK_NUM; i++)
 	{
-		delete [] optical_database_split_SA[i].spectrum_occupy;
+		delete [] optical_database_split_SA[i].spectrum_occupy; new_memory_count--;
 	}
-	delete [] optical_database_split_SA;
-	delete [] lightpath_database_split_SA;
-	delete [] traffic_SA;
-	delete [] selected_splitpoints;
+	delete [] optical_database_split_SA; new_memory_count--;
+	delete [] lightpath_database_split_SA; new_memory_count--;
+	delete [] traffic_SA; new_memory_count--;
+	delete [] traffic_SA_for_test; new_memory_count--;
+	delete [] selected_splitpoints; new_memory_count--;
 	return;
 }
 
@@ -1630,13 +1720,14 @@ void Network::All_Lightpath_Splitting(int split_option_B, Optical *o_db, Lightpa
 	overall_traffic_success = pre_split_overall_traffic_success;
 	split_lightpath_control = 0;
 
-	Optical *temp_optical_database = new Optical[TOPO_LINK_NUM];
-	Lightpath *temp_lightpath_database = new Lightpath[TOPO_LINK_NUM*SPECTRUM_SLOT_NUM];
-	Traffic *temp_req = new Traffic[TOPO_NODE_NUM*(TOPO_NODE_NUM-1)];	
-	Copy_Optical_Database(o_db, temp_optical_database);	
+	Optical *temp_optical_database = new Optical[TOPO_LINK_NUM]; new_memory_count++;
+	Lightpath *temp_lightpath_database = new Lightpath[TOPO_LINK_NUM*SPECTRUM_SLOT_NUM]; new_memory_count++;
+	Traffic *temp_req = new Traffic[TOPO_NODE_NUM*(TOPO_NODE_NUM-1)]; new_memory_count++;
+	
+	Copy_Optical_Database(o_db, temp_optical_database);	new_memory_count += TOPO_LINK_NUM;
 	Copy_Lightpath_Database(lp_db, temp_lightpath_database);
 	Copy_Traffic_Database(req, temp_req);
-	Lightpath *temp_lightpath_splitresult = new Lightpath[TOPO_LINK_NUM*SPECTRUM_SLOT_NUM];
+	Lightpath *temp_lightpath_splitresult = new Lightpath[TOPO_LINK_NUM*SPECTRUM_SLOT_NUM]; new_memory_count++;
 
 	float affected_bandwidth = 0;
 	int splitpoint_num = 0;
@@ -1677,55 +1768,75 @@ void Network::All_Lightpath_Splitting(int split_option_B, Optical *o_db, Lightpa
 	average_hops = (float)total_hops/incremental_postsplit_throughput;
 	cout<<incremental_postsplit_throughput<<" "<<affected_bandwidth<<" "<<average_hops<<" "<<increased_hops_bw<<endl;
 
+	for (int s = 0; s < TOPO_NODE_NUM*(TOPO_NODE_NUM-1); s++)
+	{
+		cout<<s<<": "<<temp_req[s].traffic_src<<"->"<<temp_req[s].traffic_dst<<": "<<temp_req[s].traffic_bw<<" "<<temp_req[s].traffic_actual_bw<<endl;
+	}
+
 	for (int i = 0; i < TOPO_LINK_NUM; i++)
 	{
-		delete [] temp_optical_database[i].spectrum_occupy;
+		delete [] temp_optical_database[i].spectrum_occupy; new_memory_count--;
 	}
-	delete [] temp_optical_database;
-	delete [] temp_lightpath_database;
-	delete [] temp_lightpath_splitresult;
-	delete [] temp_req;
+	delete [] temp_optical_database; new_memory_count--;
+	delete [] temp_lightpath_database; new_memory_count--;
+	delete [] temp_lightpath_splitresult; new_memory_count--;
+	delete [] temp_req; new_memory_count--;
 }
 
 void Network::Lightpath_Splitting_Routing()
 {
 	clock_t startTime, endTime;
+
+	cout<<"***[all splitting algorithm]***"<<endl;
+	All_Lightpath_Splitting(0, optical_database, lightpath_database, incremental_residual_traffic);
+
+	//All_Lightpath_Splitting(1, optical_database, lightpath_database, incremental_residual_traffic);
+	//cout<<"NEW: "<<new_memory_count<<endl; 
+
 	//Lightpath Splitting
-	for (int k = 1; k < 16; k++)
+	for (int k = 15; k > 14; k--)
 	{
-		cout<<"*******"<<endl<<"K="<<10*k<<endl<<"*******"<<endl<<endl;
+		//if (k != 15)
+		//{
+			//continue;
+		//}
+		cout<<endl<<"*******"<<endl<<"K="<<10*k<<endl<<"*******"<<endl;
 		//////////////////////////////////////////////////////////////////////////
 		//Select as many lightpaths as possible, split to max electric capacity, BF-MaxE
 		cout<<"***[Greedy algorithm 1,2,3,4,Simulated annealing algorithm 1,2]***"<<endl;
-		cout<<"*throughput(*6.25Gbps), Affected bandwidth(*6.25Gbps), LPSplitting accommodateting average bps traffic hops(/6.25Gbps), LPSplitting increased hops to baseline traffic*baseline bandwidth"<<endl;
+		cout<<"*Throughput(*6.25Gbps), Affected bandwidth(*6.25Gbps), LPSplitting accommodated traffic average bps traffic hops(/6.25Gbps), LPSplitting resulted incremental traffic hops*existing traffic bandwidth"<<endl;
 		startTime = clock();
-		Greedy_Lightpath_Splitting(10*k, 0, 0, optical_database, lightpath_database, incremental_residual_traffic);
+		//Greedy_Lightpath_Splitting(10*k, 0, 0, optical_database, lightpath_database, incremental_residual_traffic);
 		endTime = clock();
 		cout<<"BF-MaxE: "<<(double)(endTime - startTime)/CLOCKS_PER_SEC<<"s"<<endl;
+		//cout<<"NEW: "<<new_memory_count<<endl; 
 
 		//////////////////////////////////////////////////////////////////////////
 		//split one lightpath as much as possible, split to max electric capacity, DF-MaxE
 		//cout<<"***[Greedy algorithm 2]***"<<endl;
 		startTime = clock();
-		Greedy_Lightpath_Splitting(10*k, 1, 0, optical_database, lightpath_database, incremental_residual_traffic);
+		//Greedy_Lightpath_Splitting(10*k, 1, 0, optical_database, lightpath_database, incremental_residual_traffic);
 		endTime = clock();
 		cout<<"DF-MaxE: "<<(double)(endTime - startTime)/CLOCKS_PER_SEC<<"s"<<endl;
+		//cout<<"NEW: "<<new_memory_count<<endl; 
 
 		//////////////////////////////////////////////////////////////////////////
 		//Select as many lightpaths as possible, split to max optical capacity, BF-MaxO
 		//cout<<"***[Greedy algorithm 3]***"<<endl;
 		startTime = clock();
-		Greedy_Lightpath_Splitting(10*k, 0, 1, optical_database, lightpath_database, incremental_residual_traffic);
+		//Greedy_Lightpath_Splitting(10*k, 0, 1, optical_database, lightpath_database, incremental_residual_traffic);
 		endTime = clock();
 		cout<<"BF-MaxO: "<<(double)(endTime - startTime)/CLOCKS_PER_SEC<<"s"<<endl;
+		//cout<<"NEW: "<<new_memory_count<<endl; 
 
 		//////////////////////////////////////////////////////////////////////////
 		//split one lightpath as much as possible, split to max optical capacity, DF-MaxO
 		//cout<<"***[Greedy algorithm 4]***"<<endl;
 		startTime = clock();
-		Greedy_Lightpath_Splitting(10*k, 1, 1, optical_database, lightpath_database, incremental_residual_traffic);
+		//Greedy_Lightpath_Splitting(10*k, 1, 1, optical_database, lightpath_database, incremental_residual_traffic);
 		endTime = clock();
 		cout<<"DF-MaxO: "<<(double)(endTime - startTime)/CLOCKS_PER_SEC<<"s"<<endl;
+		//cout<<"NEW: "<<new_memory_count<<endl; 
 
 		//////////////////////////////////////////////////////////////////////////
 		//Simulated annealing, split to max electric capacity, SA-MaxE
@@ -1734,19 +1845,19 @@ void Network::Lightpath_Splitting_Routing()
 		SA_Lightpath_Splitting(10*k, 0, optical_database, lightpath_database, incremental_residual_traffic);
 		endTime = clock();
 		cout<<"SA-MaxE: "<<(double)(endTime - startTime)/CLOCKS_PER_SEC<<"s"<<endl;
+		//cout<<"NEW: "<<new_memory_count<<endl; 
 
 		//////////////////////////////////////////////////////////////////////////
 		//Simulated annealing, split to max optical capacity, SA-MaxO
 		//cout<<"***[Simulated annealing algorithm 2]***"<<endl;
 		startTime = clock();
-		SA_Lightpath_Splitting(10*k, 1, optical_database, lightpath_database, incremental_residual_traffic);
+		//SA_Lightpath_Splitting(10*k, 1, optical_database, lightpath_database, incremental_residual_traffic);
 		endTime = clock();
 		cout<<"SA-MaxO: "<<(double)(endTime - startTime)/CLOCKS_PER_SEC<<"s"<<endl;
+		//cout<<"NEW: "<<new_memory_count<<endl; 
 
 	}
-	cout<<"***[all splitting algorithm]***"<<endl;
-	All_Lightpath_Splitting(0, optical_database, lightpath_database, incremental_residual_traffic);
-	All_Lightpath_Splitting(1, optical_database, lightpath_database, incremental_residual_traffic);
+	
 
 	return;
 }
@@ -1756,24 +1867,30 @@ void Network::Post_Processing()
 	//Optical
 	for (int i = 0; i < TOPO_LINK_NUM; i++)
 	{
-		delete [] optical_database[i].spectrum_occupy;
+		delete [] optical_database[i].spectrum_occupy; new_memory_count--;
 	}
-	delete [] optical_database;
+	delete [] optical_database; new_memory_count--;
 
 	//Traffic
-	delete [] baseline_traffic;
-	delete [] incremental_traffic;
-	delete [] incremental_residual_traffic;
+	delete [] baseline_traffic; new_memory_count--;
+	delete [] incremental_traffic; new_memory_count--;
+	delete [] incremental_residual_traffic; new_memory_count--;
 
 	//Generate_Baseline_Configurations()
-	delete [] lightpath_database;
+	delete [] lightpath_database; new_memory_count--;
+
+	//cout<<"Final NEW: "<<new_memory_count<<endl; 
 		
 	exit(0);
 }
 
 int main()
 {
-	cout<<"Welcome to Lightpath Splitting Simulation Environment"<<endl<<"Copyright z.zhong.tsinghua@gmail.com"<<endl<<"2017.11 --version 1.0 @Tsinghua"<<endl<<endl;
+	cout<<"Welcome to Lightpath Splitting Simulation Environment"<<endl<<"Copyright held with Zhizhen Zhong (z.zhong.tsinghua@gmail.com)"<<endl
+		<<"  2017.11--version 1.0 @Tsinghua for ToN submission"<<endl
+		<<"  2018.12--version 2.0 @Tsinghua for ToN revision"<<endl
+		<<"  2019.06--version 3.0 @Tsinghua for camera-ready publication"<<endl
+		<<"  [Paper]: Z. Zhong, N. Hua, M. Tornatore,, J. Li, Y. Li, X. Zheng, and B. Mukherjee, (2019). Provisioning short-term traffic fluctuations in elastic optical networks. IEEE/ACM Transactions on Networking, 27(4), 1460-1473."<<endl;
 	while(1)
 	{
 		while(1)
@@ -1788,8 +1905,8 @@ int main()
 			case '1' : network.Read_Topo(); break;
 			case '2' : network.Generate_Traffic(MU); break;
 			case '3' : network.Generate_Baseline_Configurations(); break;
-			case '4' : network.General_Incremental_Routing();break;
-			case '5' : network.Lightpath_Splitting_Routing();break; 
+			case '4' : network.General_Incremental_Routing(); break;
+			case '5' : network.Lightpath_Splitting_Routing(); break; 
 			case '6' : network.Post_Processing();
 			default : cout<<"Wrong Input!";continue;
 			}
